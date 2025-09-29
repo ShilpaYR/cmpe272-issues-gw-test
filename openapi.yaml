@@ -1,0 +1,274 @@
+openapi: 3.1.0
+info:
+  title: GitHub Issues Gateway
+  version: 1.0.0
+  description: >
+    A thin gateway around GitHub Issues for a single configured repository.
+    Server authenticates to GitHub using a server-side bearer token. Pagination
+    headers from GitHub (Link) are forwarded on list endpoints.
+
+servers:
+  - url: http://localhost:{port}
+    variables:
+      port:
+        default: "8080"
+
+paths:
+  /healthz:
+    get:
+      summary: Liveness probe
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok: { type: boolean }
+                required: [ok]
+
+  /issues:
+    post:
+      summary: Create a GitHub issue
+      operationId: createIssue
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateIssueRequest" }
+            examples:
+              createExample:
+                value:
+                  title: "Bug: 500 on save"
+                  body: "Steps to reproduce..."
+                  labels: ["bug"]
+      responses:
+        "201":
+          description: Created
+          headers:
+            Location:
+              description: Relative URL of the created resource
+              schema: { type: string, example: "/issues/42" }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Issue" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+    get:
+      summary: List issues
+      operationId: listIssues
+      parameters:
+        - in: query
+          name: state
+          schema: { type: string, enum: [open, closed, all], default: open }
+        - in: query
+          name: labels
+          schema: { type: string }
+          description: "Comma-separated label names (example: \"bug,help wanted\")"
+        - in: query
+          name: page
+          schema: { type: integer, minimum: 1, default: 1 }
+        - in: query
+          name: per_page
+          schema: { type: integer, minimum: 1, maximum: 100, default: 30 }
+      responses:
+        "200":
+          description: OK
+          headers:
+            Link:
+              description: "GitHub-style pagination links"
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Issue" }
+
+  /issues/{number}:
+    parameters:
+      - in: path
+        name: number
+        required: true
+        schema: { type: integer, minimum: 1 }
+    get:
+      summary: Get a single issue
+      operationId: getIssue
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Issue" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      summary: Update an issue (title/body/state)
+      operationId: updateIssue
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateIssueRequest" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Issue" }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /issues/{number}/comments:
+    parameters:
+      - in: path
+        name: number
+        required: true
+        schema: { type: integer, minimum: 1 }
+    post:
+      summary: Add a comment to an issue
+      operationId: createComment
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateCommentRequest" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Comment" }
+
+  /webhook:
+    post:
+      summary: GitHub webhook receiver (issues, issue_comment, ping)
+      description: >
+        Verifies HMAC SHA-256 signature using WEBHOOK_SECRET. Responds quickly
+        with 204; dedupes deliveries; stores normalized events.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              description: "Raw GitHub delivery JSON (varies by event)"
+      responses:
+        "204": { description: No Content }
+        "400": { $ref: "#/components/responses/BadRequest" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+
+  /events:
+    get:
+      summary: Return recent processed webhook events (for debugging)
+      operationId: listEvents
+      parameters:
+        - in: query
+          name: limit
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/Event" }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: GitHubPAT
+
+  schemas:
+    Issue:
+      type: object
+      required: [number, html_url, state, title, labels, created_at, updated_at]
+      properties:
+        number: { type: integer }
+        html_url: { type: string, format: uri }
+        state: { type: string, enum: [open, closed] }
+        title: { type: string }
+        body: { type: string, nullable: true }
+        labels:
+          type: array
+          items: { type: string }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    CreateIssueRequest:
+      type: object
+      required: [title]
+      properties:
+        title: { type: string, minLength: 1 }
+        body: { type: string }
+        labels:
+          type: array
+          items: { type: string }
+
+    UpdateIssueRequest:
+      type: object
+      properties:
+        title: { type: string }
+        body: { type: string }
+        state: { type: string, enum: [open, closed] }
+
+    CreateCommentRequest:
+      type: object
+      required: [body]
+      properties:
+        body: { type: string, minLength: 1 }
+
+    Comment:
+      type: object
+      required: [id, body, user, created_at, html_url]
+      properties:
+        id: { type: integer }
+        body: { type: string }
+        user:
+          type: object
+          additionalProperties: true
+        created_at: { type: string, format: date-time }
+        html_url: { type: string, format: uri }
+
+    Event:
+      type: object
+      required: [id, event, timestamp]
+      properties:
+        id: { type: string }
+        event: { type: string, enum: [issues, issue_comment, ping] }
+        action: { type: string }
+        issue_number: { type: integer }
+        timestamp: { type: string }
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error: { type: string }
+        details:
+          type: object
+          additionalProperties: true
+        request_id: { type: string }
+
+  responses:
+    BadRequest:
+      description: Bad Request
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    Unauthorized:
+      description: Unauthorized
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+    NotFound:
+      description: Not Found
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+
+security:
+  - bearerAuth: []

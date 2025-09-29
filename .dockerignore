@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.log
+
+# Virtualenv
+.venv
+
+# Git / node
+.git
+.gitignore
+node_modules
+
+# Tests & coverage (we mount them in dev via volume; no need in image)
+tests
+.coverage
+htmlcov
+
+# Do NOT bake secrets into the image
+.env

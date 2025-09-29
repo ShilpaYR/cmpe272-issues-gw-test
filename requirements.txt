@@ -1,0 +1,13 @@
+fastapi>=0.110
+uvicorn[standard]>=0.29
+httpx>=0.28
+pydantic>=2.5
+pydantic-settings>=2.2
+python-dotenv>=1.0
+
+# testing
+pytest>=7.4
+pytest-asyncio>=0.23
+pytest-cov>=4.1
+respx>=0.21
+asgi-lifespan>=2.1

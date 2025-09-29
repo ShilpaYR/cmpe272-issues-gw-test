@@ -1,0 +1,17 @@
+services:
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: issues-gw:dev
+    command: uvicorn src.app:app --host 0.0.0.0 --port ${PORT:-8080} --reload
+    env_file: .env
+    ports:
+      - "${PORT:-8080}:8080"
+    volumes:
+      - .:/app:cached
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
